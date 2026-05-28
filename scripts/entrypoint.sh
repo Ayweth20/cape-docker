@@ -56,6 +56,8 @@ if [ ! -d "$WORK" ]; then
     exit 1
 fi
 chown -R "${CAPE_USER}:${CAPE_USER}" "$WORK"
+mkdir -p "$WORK/tmp"
+chmod 777 "$WORK/tmp" || true
 
 # ── 4. Gérer la configuration CAPE (symlinks vers /work) ──────
 # Inspiré de l'approche celyrin/cape-docker :

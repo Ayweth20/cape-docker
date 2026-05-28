@@ -42,8 +42,9 @@ def configure_cuckoo():
     if not config.has_section("cuckoo"):
         config.add_section("cuckoo")
 
-    # Moteur de virtualisation
+    # Moteur de virtualisation et dossier temporaire partagé
     config.set("cuckoo", "machinery", "kvm")
+    config.set("cuckoo", "tmppath", "/work/tmp")
 
     # Adresse du Result Server (IP du bridge KVM vu par les VMs)
     resultserver_ip = os.environ.get("CAPE_RESULTSERVER_IP", "192.168.122.1")

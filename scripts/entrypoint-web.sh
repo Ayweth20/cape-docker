@@ -44,6 +44,8 @@ done
 
 # ── 3. Liens symboliques conf/storage depuis /work ────────────
 WORK="/work"
+mkdir -p "$WORK/tmp"
+chmod 777 "$WORK/tmp" || true
 for dir in conf storage; do
     SRC="${CAPE_ROOT}/${dir}"
     DST="${WORK}/${dir}"
