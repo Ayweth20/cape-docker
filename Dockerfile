@@ -93,18 +93,21 @@ RUN groupadd -r cape && \
 RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} && \
     chown -R cape:cape ${CAPE_ROOT} && \
     sed -i 's/cryptography>=.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true && \
-    sed -i 's/cryptography==.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true
+    sed -i 's/cryptography==.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true && \
+    sed -i 's/pyasn1==.*/pyasn1<0.6.0/g' ${CAPE_ROOT}/requirements.txt || true
 
 # ── Installation des dépendances Python CAPE ──────────────────
 WORKDIR ${CAPE_ROOT}
 
 # Installer poetry (gestionnaire de dépendances recommandé par CAPE)
 RUN pip3 install --upgrade pip && \
-    pip3 install poetry "cryptography<46" "cffi<2.0.0"
+    pip3 install poetry "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0"
 
-# Installer les dépendances via poetry
-RUN su -c "cd ${CAPE_ROOT} && poetry install --no-dev" cape 2>/dev/null || \
-    (pip3 install "cryptography<46" "cffi<2.0.0" && pip3 install -r ${CAPE_ROOT}/requirements.txt)
+# Installer les dépendances via poetry (recommandé et verrouillé, évite les conflits)
+# Si Poetry échoue, repli sur pip3 avec des contraintes strictes
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-root --no-directory || \
+    (pip3 install "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" && pip3 install -r ${CAPE_ROOT}/requirements.txt)
 
 # Installer des dépendances spécifiques essentielles
 RUN pip3 install \
