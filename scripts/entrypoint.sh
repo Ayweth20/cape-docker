@@ -104,6 +104,10 @@ log "Démarrage des services CAPE..."
 if systemctl is-enabled cape-rooter.service > /dev/null 2>&1; then
     systemctl restart cape-rooter.service
     log "cape-rooter.service démarré"
+else
+    log "Démarrage manuel de cape-rooter..."
+    python3 "${CAPE_ROOT}/utils/rooter.py" --sudo &
+    log "cape-rooter démarré en tâche de fond (PID: $!)"
 fi
 
 # Démarrer le service principal CAPE
