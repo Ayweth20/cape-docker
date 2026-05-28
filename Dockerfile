@@ -91,18 +91,20 @@ RUN groupadd -r cape && \
 
 # ── Clonage CAPEv2 ────────────────────────────────────────────
 RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} && \
-    chown -R cape:cape ${CAPE_ROOT}
+    chown -R cape:cape ${CAPE_ROOT} && \
+    sed -i 's/cryptography>=.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true && \
+    sed -i 's/cryptography==.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true
 
 # ── Installation des dépendances Python CAPE ──────────────────
 WORKDIR ${CAPE_ROOT}
 
 # Installer poetry (gestionnaire de dépendances recommandé par CAPE)
 RUN pip3 install --upgrade pip && \
-    pip3 install poetry
+    pip3 install poetry "cryptography<46" "cffi<2.0.0"
 
 # Installer les dépendances via poetry
 RUN su -c "cd ${CAPE_ROOT} && poetry install --no-dev" cape 2>/dev/null || \
-    pip3 install -r ${CAPE_ROOT}/requirements.txt
+    (pip3 install "cryptography<46" "cffi<2.0.0" && pip3 install -r ${CAPE_ROOT}/requirements.txt)
 
 # Installer des dépendances spécifiques essentielles
 RUN pip3 install \
