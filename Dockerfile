@@ -121,7 +121,7 @@ RUN pip3 install \
     pymongo \
     redis \
     celery \
-    python-libvirt \
+    libvirt-python \
     requests \
     pefile \
     yara-python \
