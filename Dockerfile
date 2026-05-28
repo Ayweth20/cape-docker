@@ -79,11 +79,12 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 &
 
 # ── Utilisateur cape (non-root) ────────────────────────────────
 RUN groupadd -r cape && \
+    groupadd -f libvirt && \
+    groupadd -f libvirt-qemu && \
+    groupadd -f pcap && \
     useradd -r -g cape -G sudo,libvirt,libvirt-qemu,pcap -m -s /bin/bash cape && \
     echo "cape ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
     # Autoriser tcpdump sans root
-    groupadd -f pcap && \
-    usermod -a -G pcap cape && \
     chgrp pcap /usr/bin/tcpdump && \
     chmod 750 /usr/bin/tcpdump && \
     setcap cap_net_raw,cap_net_admin=eip /usr/bin/tcpdump || true
