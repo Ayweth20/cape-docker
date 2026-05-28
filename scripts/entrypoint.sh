@@ -106,7 +106,7 @@ if systemctl is-enabled cape-rooter.service > /dev/null 2>&1; then
     log "cape-rooter.service démarré"
 else
     log "Démarrage manuel de cape-rooter..."
-    python3 "${CAPE_ROOT}/utils/rooter.py" --sudo &
+    python3 "${CAPE_ROOT}/utils/rooter.py" &
     log "cape-rooter démarré en tâche de fond (PID: $!)"
 fi
 
