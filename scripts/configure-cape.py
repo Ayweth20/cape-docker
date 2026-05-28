@@ -80,8 +80,17 @@ def configure_kvm():
     config.set("kvm", "dsn", dsn)
     config.set("kvm", "interface", os.environ.get("CAPE_NETWORK_IFACE", "virbr1"))
 
-    # VM 1 (peut être étendu pour plusieurs VMs)
+    # Définir dynamiquement les machines actives
     vm1_label = os.environ.get("VM1_LABEL", "win10")
+    machines = [vm1_label]
+    for i in range(2, 10):
+        vm_label = os.environ.get(f"VM{i}_LABEL", "")
+        if not vm_label:
+            break
+        machines.append(vm_label)
+    config.set("kvm", "machines", ",".join(machines))
+
+    # VM 1 (peut être étendu pour plusieurs VMs)
     if not config.has_section(vm1_label):
         config.add_section(vm1_label)
 
