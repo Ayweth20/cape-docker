@@ -101,6 +101,10 @@ RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} &&
 # ── Installation des dépendances Python CAPE ──────────────────
 WORKDIR ${CAPE_ROOT}
 
+# Nettoyer pycparser pré-installé par le système pour éviter l'erreur de désinstallation distutils
+RUN apt-get remove -y python3-pycparser || true && \
+    rm -rf /usr/lib/python3/dist-packages/pycparser* /usr/lib/python3/dist-packages/_pycparser* || true
+
 # Installer poetry (gestionnaire de dépendances recommandé par CAPE)
 RUN pip3 install --upgrade pip && \
     pip3 install poetry "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26"
