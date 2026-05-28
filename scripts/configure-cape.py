@@ -208,7 +208,7 @@ if __name__ == "__main__":
                 log(f"Copie du template : {default_file.name} → {target.name}")
 
     configure_cuckoo()
-    configure_kvm()
+    # configure_kvm()  # Désactivé pour permettre la gestion 100% manuelle des VMs dans kvm.conf
     configure_reporting()
     configure_web()
     configure_auxiliary()
