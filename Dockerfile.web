@@ -37,29 +37,33 @@ RUN groupadd -r cape && \
 
 # ── Clone CAPEv2 ─────────────────────────────────────────────
 RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} && \
-    chown -R cape:cape ${CAPE_ROOT}
+    chown -R cape:cape ${CAPE_ROOT} && \
+    sed -i 's/cryptography>=.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true && \
+    sed -i 's/cryptography==.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true && \
+    sed -i 's/pyasn1==.*/pyasn1<0.6.0/g' ${CAPE_ROOT}/requirements.txt || true && \
+    sed -i 's/pyopenssl>=.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true && \
+    sed -i 's/pyopenssl==.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true
 
 # ── Dépendances Python Web ────────────────────────────────────
 WORKDIR ${CAPE_ROOT}
 
-RUN pip3 install --upgrade pip && \
-    pip3 install \
-        django \
-        gunicorn \
-        psycopg2-binary \
-        pymongo \
-        redis \
-        requests \
-        python-magic \
-        orjson \
-        djangorestframework \
-        django-extensions \
-        whitenoise
+# Nettoyer pycparser pré-installé par le système pour éviter l'erreur de désinstallation distutils
+RUN apt-get remove -y python3-pycparser || true && \
+    rm -rf /usr/lib/python3/dist-packages/pycparser* /usr/lib/python3/dist-packages/_pycparser* || true
 
-# Installer les requirements web CAPE si présents
-RUN if [ -f "${CAPE_ROOT}/web/requirements.txt" ]; then \
-        pip3 install -r ${CAPE_ROOT}/web/requirements.txt; \
-    fi || true
+# Installer poetry et les pré-requis systèmes
+RUN pip3 install --upgrade pip && \
+    pip3 install poetry "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26" \
+        django gunicorn whitenoise djangorestframework django-extensions pyzipper
+
+# Installer l'ensemble des dépendances de CAPE via poetry pour assurer la présence de tous les modules (pytz, etc.)
+# Repli sur pip3 robuste en cas d'échec
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-root || \
+    (pip3 install "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26" && pip3 install -r ${CAPE_ROOT}/requirements.txt)
+
+# Assurer la présence des packages Django et Web spécifiques
+RUN pip3 install django gunicorn whitenoise djangorestframework django-extensions pyzipper psycopg2-binary
 
 # ── Configuration ─────────────────────────────────────────────
 RUN mkdir -p /work && chown -R cape:cape /work ${CAPE_ROOT}
