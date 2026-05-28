@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y \
     # Outils réseau (capture trafic)
     tcpdump \
     libpcap-dev \
+    iptables \
     # libvirt (contrôle VMs KVM depuis le conteneur)
     libvirt-clients \
     libvirt-dev \
