@@ -91,6 +91,8 @@ python3 /configure-cape.py
 # ── 6. Initialisation de la BDD CAPE ─────────────────────────
 log "Initialisation de la base de données CAPE..."
 cd "${CAPE_ROOT}"
+# Créer le schéma de manière synchrone pour éviter les conflits de concurrence entre cuckoo et process
+sudo -u "${CAPE_USER}" python3 -c "import sys; sys.path.append('${CAPE_ROOT}'); from lib.cuckoo.core.database import init_database; init_database()" || log "Note: Initialisation/migration synchrone de la BDD ignorée"
 sudo -u "${CAPE_USER}" python3 utils/db_migration.py 2>/dev/null || \
     log "Note: Migration BDD ignorée (peut être normale au premier démarrage)"
 
