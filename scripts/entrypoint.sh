@@ -110,31 +110,17 @@ else
     log "cape-rooter démarré en tâche de fond (PID: $!)"
 fi
 
-# Démarrer le service principal CAPE
-if systemctl is-enabled cape.service > /dev/null 2>&1; then
-    systemctl restart cape.service
-    log "cape.service démarré"
-else
-    log "Service cape.service non activé - démarrage direct..."
-    sudo -u "${CAPE_USER}" python3 "${CAPE_ROOT}/cuckoo.py" -d &
-    log "CAPE démarré en mode daemon (PID: $!)"
-fi
-
-# Démarrer le processeur
-if systemctl is-enabled cape-processor.service > /dev/null 2>&1; then
-    systemctl restart cape-processor.service
-    log "cape-processor.service démarré"
-else
-    log "Démarrage du processeur CAPE..."
-    sudo -u "${CAPE_USER}" python3 "${CAPE_ROOT}/utils/process.py" auto -p 2 &
-    log "Processeur CAPE démarré (PID: $!)"
-fi
+# Démarrer le processeur en tâche de fond (requis pour traiter les analyses)
+log "Démarrage du processeur CAPE..."
+python3 "${CAPE_ROOT}/utils/process.py" auto -p 2 &
+log "Processeur CAPE démarré en tâche de fond (PID: $!)"
 
 log "============================================================"
-log "CAPE Sandbox est prêt !"
+log "CAPE Sandbox est prêt et s'initialise au premier plan..."
 log "Résultats stockés dans : /work/storage"
 log "Logs disponibles dans  : /work/log"
 log "============================================================"
 
-# Garder le conteneur actif
-exec sleep infinity
+# Démarrer le service principal CAPE au premier plan (permet de capturer tous les logs directement via Docker)
+# Ne pas utiliser sudo pour préserver l'environnement Python global et l'accès à libvirt-python
+exec python3 "${CAPE_ROOT}/cuckoo.py"
