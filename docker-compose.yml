@@ -40,6 +40,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    ports:
+      - "127.0.0.1:5432:5432"
     networks:
       - cape-internal
 
@@ -61,6 +63,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    ports:
+      - "127.0.0.1:27017:27017"
     networks:
       - cape-internal
 
@@ -79,6 +83,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    ports:
+      - "127.0.0.1:6379:6379"
     networks:
       - cape-internal
 
@@ -98,6 +104,9 @@ services:
     privileged: true  # Requis pour tcpdump + accès libvirt
     environment:
       <<: *common-env
+      POSTGRES_HOST: 127.0.0.1
+      MONGO_HOST: 127.0.0.1
+      REDIS_HOST: 127.0.0.1
       CAPE_ROOT: ${CAPE_ROOT:-/opt/CAPEv2}
       CAPE_USER: ${CAPE_USER:-cape}
       CAPE_RESULTSERVER_IP: ${CAPE_RESULTSERVER_IP:-192.168.122.1}
@@ -154,15 +163,15 @@ services:
     restart: unless-stopped
     environment:
       <<: *common-env
+      POSTGRES_HOST: 127.0.0.1
+      MONGO_HOST: 127.0.0.1
+      REDIS_HOST: 127.0.0.1
       CAPE_ROOT: ${CAPE_ROOT:-/opt/CAPEv2}
       CAPE_SECRET_KEY: ${CAPE_SECRET_KEY:-changeme}
       CAPE_WEB_PORT: ${CAPE_WEB_PORT:-8000}
     volumes:
       - ${CAPE_WORK_DIR:-./data/cape}:/work
-    ports:
-      - "${CAPE_WEB_PORT:-8000}:8000"
-    networks:
-      - cape-internal
+    network_mode: host
     depends_on:
       postgresql:
         condition: service_healthy
