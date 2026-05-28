@@ -81,12 +81,35 @@ ALLOWED_HOSTS = ["*"]
 EOF
 fi
 
+# ── 4.5 Injection de WhiteNoise (fichiers statiques) ──────────
+log "Injection de WhiteNoise pour le support des fichiers statiques..."
+python3 -c "
+settings_path = '${CAPE_ROOT}/web/web/settings.py'
+with open(settings_path, 'r') as f:
+    content = f.read()
+
+if 'whitenoise.middleware.WhiteNoiseMiddleware' not in content:
+    content = content.replace(
+        '\"django.middleware.security.SecurityMiddleware\",',
+        '\"django.middleware.security.SecurityMiddleware\",\n    \"whitenoise.middleware.WhiteNoiseMiddleware\",'
+    ).replace(
+        '\'django.middleware.security.SecurityMiddleware\',',
+        '\'django.middleware.security.SecurityMiddleware\',\n    \'whitenoise.middleware.WhiteNoiseMiddleware\','
+    )
+
+if 'STATICFILES_STORAGE' not in content:
+    content += '\nSTATICFILES_STORAGE = \"whitenoise.storage.CompressedStaticFilesStorage\"\n'
+
+with open(settings_path, 'w') as f:
+    f.write(content)
+"
+
 # Migrations Django
 log "Exécution des migrations Django..."
 python3 manage.py migrate --noinput 2>/dev/null || log "Migrations ignorées"
 
 # Collecter les fichiers statiques
-python3 manage.py collectstatic --noinput 2>/dev/null || log "collectstatic ignoré"
+python3 manage.py collectstatic --noinput || log "collectstatic ignoré"
 
 # ── 5. Démarrer Gunicorn ──────────────────────────────────────
 log "Démarrage de Gunicorn sur le port ${CAPE_WEB_PORT}..."
