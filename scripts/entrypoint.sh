@@ -87,6 +87,7 @@ done
 # ── 5. Configuration automatique via script Python ─────────────
 log "Configuration de CAPE..."
 python3 /configure-cape.py
+chmod 666 "${WORK}/conf/kvm.conf" || true
 
 # ── 6. Initialisation de la BDD CAPE ─────────────────────────
 log "Initialisation de la base de données CAPE..."
