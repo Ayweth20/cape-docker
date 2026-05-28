@@ -1,0 +1,102 @@
+#!/bin/bash
+# ============================================================
+# entrypoint-web.sh — Point d'entrée de l'interface web CAPE
+# ============================================================
+set -e
+
+CAPE_ROOT="${CAPE_ROOT:-/opt/CAPEv2}"
+POSTGRES_HOST="${POSTGRES_HOST:-postgresql}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+POSTGRES_USER="${POSTGRES_USER:-cape}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-SuperPuperSecret}"
+POSTGRES_DB="${POSTGRES_DB:-cape}"
+MONGO_HOST="${MONGO_HOST:-mongodb}"
+MONGO_PORT="${MONGO_PORT:-27017}"
+CAPE_WEB_PORT="${CAPE_WEB_PORT:-8000}"
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WEB] $*"; }
+
+# ── 1. Attendre PostgreSQL ────────────────────────────────────
+log "Attente de PostgreSQL sur ${POSTGRES_HOST}:${POSTGRES_PORT}..."
+MAX_RETRIES=30
+RETRIES=0
+until PGPASSWORD="${POSTGRES_PASSWORD}" pg_isready -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" -U "${POSTGRES_USER}" > /dev/null 2>&1; do
+    RETRIES=$((RETRIES + 1))
+    if [ $RETRIES -ge $MAX_RETRIES ]; then
+        log "ERREUR : PostgreSQL indisponible."
+        exit 1
+    fi
+    sleep 5
+done
+log "PostgreSQL prêt : OK"
+
+# ── 2. Attendre MongoDB ───────────────────────────────────────
+log "Attente de MongoDB sur ${MONGO_HOST}:${MONGO_PORT}..."
+RETRIES=0
+until python3 -c "import pymongo; pymongo.MongoClient('${MONGO_HOST}', ${MONGO_PORT}).server_info()" > /dev/null 2>&1; do
+    RETRIES=$((RETRIES + 1))
+    if [ $RETRIES -ge 20 ]; then
+        log "AVERTISSEMENT : MongoDB indisponible. L'interface peut fonctionner partiellement."
+        break
+    fi
+    sleep 5
+done
+
+# ── 3. Liens symboliques conf/storage depuis /work ────────────
+WORK="/work"
+for dir in conf storage; do
+    SRC="${CAPE_ROOT}/${dir}"
+    DST="${WORK}/${dir}"
+    if [ -d "${DST}" ] && [ ! -L "${SRC}" ]; then
+        rm -rf "${SRC}"
+        ln -s "${DST}" "${SRC}"
+    fi
+done
+
+# ── 4. Configuration Django ───────────────────────────────────
+log "Configuration de l'interface web..."
+cd "${CAPE_ROOT}/web"
+
+# Créer le fichier de configuration local si absent
+if [ ! -f "${CAPE_ROOT}/web/local_settings.py" ]; then
+    cat > "${CAPE_ROOT}/web/local_settings.py" << EOF
+# Configuration locale auto-générée
+import os
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "NAME": "${POSTGRES_DB}",
+        "USER": "${POSTGRES_USER}",
+        "PASSWORD": "${POSTGRES_PASSWORD}",
+        "HOST": "${POSTGRES_HOST}",
+        "PORT": "${POSTGRES_PORT}",
+    }
+}
+
+MONGO_URI = "mongodb://${MONGO_HOST}:${MONGO_PORT}"
+SECRET_KEY = "${CAPE_SECRET_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(32))')}"
+DEBUG = False
+ALLOWED_HOSTS = ["*"]
+EOF
+fi
+
+# Migrations Django
+log "Exécution des migrations Django..."
+python3 manage.py migrate --noinput 2>/dev/null || log "Migrations ignorées"
+
+# Collecter les fichiers statiques
+python3 manage.py collectstatic --noinput 2>/dev/null || log "collectstatic ignoré"
+
+# ── 5. Démarrer Gunicorn ──────────────────────────────────────
+log "Démarrage de Gunicorn sur le port ${CAPE_WEB_PORT}..."
+log "Interface disponible sur : http://0.0.0.0:${CAPE_WEB_PORT}"
+
+exec gunicorn \
+    --bind "0.0.0.0:${CAPE_WEB_PORT}" \
+    --workers 3 \
+    --timeout 300 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info \
+    web.wsgi:application

@@ -1,0 +1,37 @@
+# CAPEv2 Docker — .dockerignore
+# ============================================================
+# Évite d'inclure des fichiers inutiles dans le contexte de build
+
+# Données persistantes
+data/
+*.log
+
+# Git
+.git/
+.gitignore
+
+# Environnements Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# SSL certs
+nginx/ssl/
+
+# Docs
+*.md
+doc/
+docs/

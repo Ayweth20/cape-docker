@@ -1,0 +1,30 @@
+# .gitignore pour cape-docker
+# ============================================================
+
+# Données persistantes (ne pas committer)
+data/
+*.log
+
+# Variables d'environnement (contiennent des secrets)
+.env
+.env.local
+.env.*.local
+
+# SSL
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store

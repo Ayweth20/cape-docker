@@ -1,0 +1,198 @@
+version: "3.9"
+
+# ============================================================
+# CAPEv2 Docker Compose — Architecture multi-services
+# Host requis : Ubuntu 22.04/24.04 avec KVM/libvirt installé
+# ============================================================
+
+x-common-env: &common-env
+  TZ: ${TZ:-UTC}
+  POSTGRES_HOST: ${POSTGRES_HOST:-postgresql}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_USER: ${POSTGRES_USER:-cape}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SuperPuperSecret}
+  POSTGRES_DB: ${POSTGRES_DB:-cape}
+  MONGO_HOST: ${MONGO_HOST:-mongodb}
+  MONGO_PORT: ${MONGO_PORT:-27017}
+  MONGO_DB: ${MONGO_DB:-cape}
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # PostgreSQL — Base de données des tâches CAPE
+  # ──────────────────────────────────────────────────────────
+  postgresql:
+    image: postgres:16-alpine
+    container_name: cape-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cape}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-SuperPuperSecret}
+      POSTGRES_DB: ${POSTGRES_DB:-cape}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ${POSTGRES_DATA_DIR:-./data/postgresql}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cape} -d ${POSTGRES_DB:-cape}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - cape-internal
+
+  # ──────────────────────────────────────────────────────────
+  # MongoDB — Stockage des résultats d'analyse
+  # ──────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: cape-mongodb
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+    command: ["--bind_ip_all", "--wiredTigerCacheSizeGB", "2"]
+    volumes:
+      - ${MONGO_DATA_DIR:-./data/mongodb}:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - cape-internal
+
+  # ──────────────────────────────────────────────────────────
+  # Redis — File d'attente des tâches
+  # ──────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: cape-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cape-internal
+
+  # ──────────────────────────────────────────────────────────
+  # CAPE Sandbox — Cœur du système d'analyse malware
+  # Accède à KVM via le socket libvirt du host
+  # ──────────────────────────────────────────────────────────
+  cape-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        CAPE_ROOT: /opt/CAPEv2
+    image: cape-sandbox:latest
+    container_name: cape-sandbox
+    restart: unless-stopped
+    privileged: true  # Requis pour tcpdump + accès libvirt
+    environment:
+      <<: *common-env
+      CAPE_ROOT: ${CAPE_ROOT:-/opt/CAPEv2}
+      CAPE_USER: ${CAPE_USER:-cape}
+      CAPE_RESULTSERVER_IP: ${CAPE_RESULTSERVER_IP:-192.168.122.1}
+      CAPE_NETWORK_IFACE: ${CAPE_NETWORK_IFACE:-virbr1}
+      KVM_DSN: ${KVM_DSN:-qemu:///system}
+      VM1_LABEL: ${VM1_LABEL:-win10}
+      VM1_IP: ${VM1_IP:-192.168.122.105}
+      VM1_SNAPSHOT: ${VM1_SNAPSHOT:-cape-snapshot}
+      VM1_PLATFORM: ${VM1_PLATFORM:-windows}
+      VM1_ARCH: ${VM1_ARCH:-x64}
+      VM1_TAGS: ${VM1_TAGS:-win10}
+    volumes:
+      # Socket libvirt pour contrôler les VMs KVM depuis le conteneur
+      - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
+      - /var/run/libvirt/libvirt-sock-ro:/var/run/libvirt/libvirt-sock-ro
+      # Données persistantes CAPE (conf, storage, logs)
+      - ${CAPE_WORK_DIR:-./data/cape}:/work
+      # Accès aux images disque KVM pour les snapshots
+      - /var/lib/libvirt/images:/var/lib/libvirt/images:ro
+      # cgroups requis pour systemd dans le conteneur
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      # tmpfs pour run/lock
+    tmpfs:
+      - /run
+      - /run/lock
+    network_mode: host  # Requis pour sniffer le trafic réseau des VMs KVM
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_NICE
+    security_opt:
+      - apparmor:unconfined
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────
+  # CAPE Web — Interface Django
+  # Note: utilise le réseau host pour accéder à sandbox
+  # ──────────────────────────────────────────────────────────
+  cape-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        CAPE_ROOT: /opt/CAPEv2
+    image: cape-web:latest
+    container_name: cape-web
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      CAPE_ROOT: ${CAPE_ROOT:-/opt/CAPEv2}
+      CAPE_SECRET_KEY: ${CAPE_SECRET_KEY:-changeme}
+      CAPE_WEB_PORT: ${CAPE_WEB_PORT:-8000}
+    volumes:
+      - ${CAPE_WORK_DIR:-./data/cape}:/work
+    ports:
+      - "${CAPE_WEB_PORT:-8000}:8000"
+    networks:
+      - cape-internal
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+
+  # ──────────────────────────────────────────────────────────
+  # Nginx — Reverse proxy HTTP
+  # ──────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: cape-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/cape.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - cape-internal
+    depends_on:
+      - cape-web
+
+volumes:
+  redis-data:
+
+networks:
+  cape-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

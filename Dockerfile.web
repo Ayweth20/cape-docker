@@ -1,0 +1,76 @@
+# ============================================================
+# Dockerfile.web — CAPE Web Interface (Django)
+# ============================================================
+
+FROM ubuntu:22.04
+
+ARG CAPE_ROOT=/opt/CAPEv2
+ARG DEBIAN_FRONTEND=noninteractive
+
+LABEL description="CAPEv2 Web Interface - Django + Gunicorn"
+
+# ── Timezone ──────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y tzdata && \
+    ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
+    dpkg-reconfigure -f noninteractive tzdata
+
+# ── Dépendances système légères ───────────────────────────────
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3.10-dev \
+    python3-pip \
+    python3-setuptools \
+    git \
+    curl \
+    libpq-dev \
+    libmagic-dev \
+    libfuzzy-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+
+# ── Utilisateur cape ──────────────────────────────────────────
+RUN groupadd -r cape && \
+    useradd -r -g cape -m -s /bin/bash cape
+
+# ── Clone CAPEv2 ─────────────────────────────────────────────
+RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} && \
+    chown -R cape:cape ${CAPE_ROOT}
+
+# ── Dépendances Python Web ────────────────────────────────────
+WORKDIR ${CAPE_ROOT}
+
+RUN pip3 install --upgrade pip && \
+    pip3 install \
+        django \
+        gunicorn \
+        psycopg2-binary \
+        pymongo \
+        redis \
+        requests \
+        python-magic \
+        orjson \
+        djangorestframework \
+        django-extensions \
+        whitenoise
+
+# Installer les requirements web CAPE si présents
+RUN if [ -f "${CAPE_ROOT}/web/requirements.txt" ]; then \
+        pip3 install -r ${CAPE_ROOT}/web/requirements.txt; \
+    fi || true
+
+# ── Configuration ─────────────────────────────────────────────
+RUN mkdir -p /work && chown -R cape:cape /work ${CAPE_ROOT}
+
+COPY scripts/entrypoint-web.sh /entrypoint-web.sh
+RUN chmod +x /entrypoint-web.sh
+
+VOLUME ["/work"]
+
+WORKDIR ${CAPE_ROOT}/web
+
+EXPOSE 8000
+
+USER cape
+ENTRYPOINT ["/entrypoint-web.sh"]
