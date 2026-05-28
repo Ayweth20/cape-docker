@@ -17,6 +17,7 @@ x-common-env: &common-env
   MONGO_DB: ${MONGO_DB:-cape}
   REDIS_HOST: ${REDIS_HOST:-redis}
   REDIS_PORT: ${REDIS_PORT:-6379}
+  CAPE_AS_ROOT: "1"
 
 services:
 
