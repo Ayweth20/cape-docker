@@ -90,6 +90,12 @@ def configure_kvm():
         machines.append(vm_label)
     config.set("kvm", "machines", ",".join(machines))
 
+    # Nettoyer les anciennes sections de machines obsolètes (comme cuckoo1 du template)
+    for section in list(config.sections()):
+        if section != "kvm" and section not in machines:
+            config.remove_section(section)
+            log(f"  → Supprime la section obsolète : {section}")
+
     # VM 1 (peut être étendu pour plusieurs VMs)
     if not config.has_section(vm1_label):
         config.add_section(vm1_label)
