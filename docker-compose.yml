@@ -1,8 +1,8 @@
 version: "3.9"
 
 # ============================================================
-# CAPEv2 Docker Compose — Architecture multi-services
-# Host requis : Ubuntu 22.04/24.04 avec KVM/libvirt installé
+# CAPEv2 Docker Compose -- Multi-service architecture
+# Host requirements: Ubuntu 22.04/24.04 with KVM/libvirt installed
 # ============================================================
 
 x-common-env: &common-env
@@ -21,9 +21,9 @@ x-common-env: &common-env
 
 services:
 
-  # ──────────────────────────────────────────────────────────
-  # PostgreSQL — Base de données des tâches CAPE
-  # ──────────────────────────────────────────────────────────
+  # ----------------------------------------------------------
+  # PostgreSQL -- Task database
+  # ----------------------------------------------------------
   postgresql:
     image: postgres:16-alpine
     container_name: cape-postgresql
@@ -46,9 +46,9 @@ services:
     networks:
       - cape-internal
 
-  # ──────────────────────────────────────────────────────────
-  # MongoDB — Stockage des résultats d'analyse
-  # ──────────────────────────────────────────────────────────
+  # ----------------------------------------------------------
+  # MongoDB -- Analysis results storage
+  # ----------------------------------------------------------
   mongodb:
     image: mongo:7.0
     container_name: cape-mongodb
@@ -69,9 +69,9 @@ services:
     networks:
       - cape-internal
 
-  # ──────────────────────────────────────────────────────────
-  # Redis — File d'attente des tâches
-  # ──────────────────────────────────────────────────────────
+  # ----------------------------------------------------------
+  # Redis -- Task queue
+  # ----------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: cape-redis
@@ -89,10 +89,10 @@ services:
     networks:
       - cape-internal
 
-  # ──────────────────────────────────────────────────────────
-  # CAPE Sandbox — Cœur du système d'analyse malware
-  # Accède à KVM via le socket libvirt du host
-  # ──────────────────────────────────────────────────────────
+  # ----------------------------------------------------------
+  # CAPE Sandbox -- Core malware analysis engine
+  # Accesses KVM through the host libvirt socket
+  # ----------------------------------------------------------
   cape-sandbox:
     build:
       context: .
@@ -102,7 +102,7 @@ services:
     image: cape-sandbox:latest
     container_name: cape-sandbox
     restart: unless-stopped
-    privileged: true  # Requis pour tcpdump + accès libvirt
+    privileged: true  # Required for tcpdump + libvirt access
     environment:
       <<: *common-env
       POSTGRES_HOST: 127.0.0.1
@@ -120,20 +120,19 @@ services:
       VM1_ARCH: ${VM1_ARCH:-x64}
       VM1_TAGS: ${VM1_TAGS:-win10}
     volumes:
-      # Socket libvirt pour contrôler les VMs KVM depuis le conteneur
+      # Libvirt socket to control KVM VMs from inside the container
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
       - /var/run/libvirt/libvirt-sock-ro:/var/run/libvirt/libvirt-sock-ro
-      # Données persistantes CAPE (conf, storage, logs)
+      # Persistent CAPE data (conf, storage, logs)
       - ${CAPE_WORK_DIR:-./data/cape}:/work
-      # Accès aux images disque KVM pour les snapshots
+      # Read-only access to KVM disk images for snapshots
       - /var/lib/libvirt/images:/var/lib/libvirt/images:ro
-      # cgroups requis pour systemd dans le conteneur
+      # cgroups required for systemd inside the container
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
-      # tmpfs pour run/lock
     tmpfs:
       - /run
       - /run/lock
-    network_mode: host  # Requis pour sniffer le trafic réseau des VMs KVM
+    network_mode: host  # Required to sniff KVM VM network traffic
     cap_add:
       - NET_RAW
       - NET_ADMIN
@@ -149,10 +148,10 @@ services:
       redis:
         condition: service_healthy
 
-  # ──────────────────────────────────────────────────────────
-  # CAPE Web — Interface Django
-  # Note: utilise le réseau host pour accéder à sandbox
-  # ──────────────────────────────────────────────────────────
+  # ----------------------------------------------------------
+  # CAPE Web -- Django interface
+  # Uses host networking to access the sandbox
+  # ----------------------------------------------------------
   cape-web:
     build:
       context: .
@@ -179,23 +178,6 @@ services:
       mongodb:
         condition: service_healthy
 
-  # ──────────────────────────────────────────────────────────
-  # Nginx — Désactivé car Traefik gère le reverse proxy sur les ports 80/443
-  # ──────────────────────────────────────────────────────────
-  # nginx:
-  #   image: nginx:1.27-alpine
-  #   container_name: cape-nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx/cape.conf:/etc/nginx/conf.d/default.conf:ro
-  #     - ./nginx/ssl:/etc/nginx/ssl:ro
-  #   networks:
-  #     - cape-internal
-  #   depends_on:
-  #     - cape-web
 
 volumes:
   redis-data:

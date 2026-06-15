@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
-# entrypoint.sh — Point d'entrée du conteneur CAPE Sandbox
-# Adapté de celyrin/cape-docker pour KVM/libvirt
+# entrypoint.sh -- CAPE Sandbox container entrypoint
+# Based on celyrin/cape-docker, adapted for KVM/libvirt
 # ============================================================
 set -e
 
@@ -16,113 +16,114 @@ POSTGRES_DB="${POSTGRES_DB:-cape}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-# ── 1. Vérification du socket libvirt ─────────────────────────
-log "Vérification du socket libvirt..."
+# -- 1. Verify libvirt socket --
+log "Checking libvirt socket..."
 LIBVIRT_SOCK="/var/run/libvirt/libvirt-sock"
 if [ ! -S "$LIBVIRT_SOCK" ]; then
-    log "ERREUR : Socket libvirt non trouvé : $LIBVIRT_SOCK"
-    log "Assurez-vous que libvirtd est actif sur le host et que le socket est monté."
+    log "ERROR: Libvirt socket not found: $LIBVIRT_SOCK"
+    log "Make sure libvirtd is running on the host and the socket volume is mounted."
     exit 1
 fi
-log "Socket libvirt trouvé : OK"
+log "Libvirt socket found: OK"
 
-# Tester la connexion libvirt
+# Test libvirt connectivity
 if ! virsh -c qemu:///system list --all > /dev/null 2>&1; then
-    log "AVERTISSEMENT : Impossible de se connecter à libvirt. Vérifiez les permissions du socket."
+    log "WARNING: Unable to connect to libvirt. Check socket permissions."
 fi
 
-# ── 2. Attendre PostgreSQL ────────────────────────────────────
-log "Attente de PostgreSQL sur ${POSTGRES_HOST}:${POSTGRES_PORT}..."
+# -- 2. Wait for PostgreSQL --
+log "Waiting for PostgreSQL on ${POSTGRES_HOST}:${POSTGRES_PORT}..."
 MAX_RETRIES=30
 RETRIES=0
 until PGPASSWORD="${POSTGRES_PASSWORD}" pg_isready -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" -U "${POSTGRES_USER}" > /dev/null 2>&1; do
     RETRIES=$((RETRIES + 1))
     if [ $RETRIES -ge $MAX_RETRIES ]; then
-        log "ERREUR : PostgreSQL indisponible après ${MAX_RETRIES} tentatives."
+        log "ERROR: PostgreSQL unavailable after ${MAX_RETRIES} attempts."
         exit 1
     fi
-    log "PostgreSQL non prêt, nouvelle tentative dans 5s... ($RETRIES/$MAX_RETRIES)"
+    log "PostgreSQL not ready, retrying in 5s... ($RETRIES/$MAX_RETRIES)"
     sleep 5
 done
-log "PostgreSQL prêt : OK"
+log "PostgreSQL ready: OK"
 
-# Créer le rôle et la base de données si nécessaire
+# Ensure the role and database exist
 PGPASSWORD="${POSTGRES_PASSWORD}" psql -h "${POSTGRES_HOST}" -U "${POSTGRES_USER}" -d postgres -c "SELECT 1" > /dev/null 2>&1 || true
 
-# ── 3. Vérification du répertoire de travail ──────────────────
-log "Vérification du répertoire de travail : $WORK"
+# -- 3. Verify working directory --
+log "Checking working directory: $WORK"
 if [ ! -d "$WORK" ]; then
-    log "ERREUR : Répertoire /work non trouvé. Vérifiez le volume Docker."
+    log "ERROR: /work directory not found. Check the Docker volume."
     exit 1
 fi
 chown -R "${CAPE_USER}:${CAPE_USER}" "$WORK"
 mkdir -p "$WORK/tmp"
-chmod 777 "$WORK/tmp" || true
+chown -R cape:cape "$WORK/tmp"
+chmod 775 "$WORK/tmp"
 
-# ── 4. Gérer la configuration CAPE (symlinks vers /work) ──────
-# Inspiré de l'approche celyrin/cape-docker :
-# conf, storage, log sont stockés dans /work et liés symboliquement
+# -- 4. Manage CAPE configuration (symlinks to /work) --
+# Based on the celyrin/cape-docker approach:
+# conf, storage, log are stored in /work and symlinked back
 
 for dir in conf storage log; do
     SRC="${CAPE_ROOT}/${dir}"
     DST="${WORK}/${dir}"
 
     if [ -L "${SRC}" ]; then
-        log "CAPEv2 ${dir} est déjà un lien symbolique : OK"
+        log "CAPEv2 ${dir} is already a symlink: OK"
     elif [ -d "${DST}" ]; then
-        log "Sauvegarde de ${dir} trouvée dans /work, liaison..."
+        log "Existing ${dir} found in /work, linking..."
         rm -rf "${SRC}"
         chown -R "${CAPE_USER}:${CAPE_USER}" "${DST}"
         ln -s "${DST}" "${SRC}"
     elif [ -d "${SRC}" ]; then
-        log "Déplacement de ${dir} vers /work et création du lien..."
+        log "Moving ${dir} to /work and creating symlink..."
         mv "${SRC}" "${DST}"
         ln -s "${DST}" "${SRC}"
         chown -R "${CAPE_USER}:${CAPE_USER}" "${DST}"
     else
-        log "Création de ${dir} dans /work..."
+        log "Creating ${dir} in /work..."
         sudo -u "${CAPE_USER}" mkdir -p "${DST}"
         ln -s "${DST}" "${SRC}"
     fi
 done
 
-# ── 5. Configuration automatique via script Python ─────────────
-log "Configuration de CAPE..."
+# -- 5. Automatic configuration via Python script --
+log "Configuring CAPE..."
 python3 /configure-cape.py
 chmod 666 "${WORK}/conf/kvm.conf" || true
 
-# ── 6. Initialisation de la BDD CAPE ─────────────────────────
-log "Initialisation de la base de données CAPE..."
+# -- 6. Initialize CAPE database --
+log "Initializing CAPE database..."
 cd "${CAPE_ROOT}"
-# Créer le schéma de manière synchrone pour éviter les conflits de concurrence entre cuckoo et process
-sudo -u "${CAPE_USER}" python3 -c "import sys; sys.path.append('${CAPE_ROOT}'); from lib.cuckoo.core.database import init_database; init_database()" || log "Note: Initialisation/migration synchrone de la BDD ignorée"
+# Run schema creation synchronously to avoid race conditions between cuckoo and process
+sudo -u "${CAPE_USER}" python3 -c "import sys; sys.path.append('${CAPE_ROOT}'); from lib.cuckoo.core.database import init_database; init_database()" || log "Note: Synchronous DB init/migration skipped"
 sudo -u "${CAPE_USER}" python3 utils/db_migration.py 2>/dev/null || \
-    log "Note: Migration BDD ignorée (peut être normale au premier démarrage)"
+    log "Note: DB migration skipped (may be normal on first startup)"
 
-# ── 7. Démarrage des services CAPE via systemd ────────────────
-log "Démarrage des services CAPE..."
+# -- 7. Start CAPE services via systemd --
+log "Starting CAPE services..."
 
-# Activer et démarrer cape-rooter (requis pour les règles réseau)
+# Enable and start cape-rooter (required for network rules)
 if systemctl is-enabled cape-rooter.service > /dev/null 2>&1; then
     systemctl restart cape-rooter.service
-    log "cape-rooter.service démarré"
+    log "cape-rooter.service started"
 else
-    log "Démarrage manuel de cape-rooter..."
+    log "Starting cape-rooter manually..."
     python3 "${CAPE_ROOT}/utils/rooter.py" &
-    log "cape-rooter démarré en tâche de fond (PID: $!)"
+    log "cape-rooter started in background (PID: $!)"
 fi
 
-# Démarrer le processeur en tâche de fond (requis pour traiter les analyses)
-log "Démarrage du processeur CAPE..."
+# Start the processor in the background (required to handle analysis results)
+log "Starting CAPE processor..."
 python3 "${CAPE_ROOT}/utils/process.py" auto -p 2 &
-log "Processeur CAPE démarré en tâche de fond (PID: $!)"
+log "CAPE processor started in background (PID: $!)"
 
 log "============================================================"
-log "CAPE Sandbox est prêt et s'initialise au premier plan..."
-log "Résultats stockés dans : /work/storage"
-log "Logs disponibles dans  : /work/log"
+log "CAPE Sandbox is ready and starting in the foreground..."
+log "Results stored in: /work/storage"
+log "Logs available in: /work/log"
 log "============================================================"
 
-# Démarrer le service principal CAPE au premier plan (permet de capturer tous les logs directement via Docker)
-# Ne pas utiliser sudo pour préserver l'environnement Python global et l'accès à libvirt-python
+# Start the main CAPE service in the foreground (captures all logs via Docker)
+# Do not use sudo to preserve the global Python environment and libvirt-python access
 exec python3 "${CAPE_ROOT}/cuckoo.py"

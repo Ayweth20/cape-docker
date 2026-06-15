@@ -1,7 +1,7 @@
 # ============================================================
-# Dockerfile — CAPE Sandbox (moteur d'analyse)
+# Dockerfile -- CAPE Sandbox (analysis engine)
 # Base: Ubuntu 22.04
-# Inspiré de celyrin/cape-docker + installateur officiel cape2.sh
+# Inspired by celyrin/cape-docker + official cape2.sh installer
 # ============================================================
 
 FROM ubuntu:22.04
@@ -10,17 +10,17 @@ ARG CAPE_ROOT=/opt/CAPEv2
 ARG DEBIAN_FRONTEND=noninteractive
 ARG CAPE_USER=cape
 
-# ── Labels ────────────────────────────────────────────────────
+# -- Labels --
 LABEL maintainer="CAPE Docker"
-LABEL description="CAPEv2 Malware Sandbox - moteur d'analyse avec support KVM/libvirt"
+LABEL description="CAPEv2 Malware Sandbox - analysis engine with KVM/libvirt support"
 LABEL version="2.0"
 
-# ── Timezone ──────────────────────────────────────────────────
+# -- Timezone --
 RUN apt-get update && apt-get install -y tzdata && \
     ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
-# ── Dépendances système ───────────────────────────────────────
+# -- System dependencies --
 RUN apt-get update && apt-get install -y \
     # Python
     python3.10 \
@@ -33,21 +33,21 @@ RUN apt-get update && apt-get install -y \
     g++ \
     make \
     cmake \
-    # Outils réseau (capture trafic)
+    # Network tools (traffic capture)
     tcpdump \
     libpcap-dev \
     iptables \
-    # libvirt (contrôle VMs KVM depuis le conteneur)
+    # libvirt (KVM VM control from inside the container)
     libvirt-clients \
     libvirt-dev \
     python3-libvirt \
-    # Utilitaires
+    # Utilities
     git \
     curl \
     wget \
     unzip \
     p7zip-full \
-    # Dépendances CAPE
+    # CAPE dependencies
     libmagic-dev \
     libssl-dev \
     libffi-dev \
@@ -57,9 +57,9 @@ RUN apt-get update && apt-get install -y \
     zlib1g-dev \
     # PostgreSQL client
     postgresql-client \
-    # Sudo pour cape user
+    # Sudo for cape user
     sudo \
-    # systemd (pour les services CAPE)
+    # systemd (for CAPE services)
     systemd \
     systemd-sysv \
     # Monitoring
@@ -74,23 +74,23 @@ RUN apt-get update && apt-get install -y \
     python3-ssdeep \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# ── Alternatives Python ────────────────────────────────────────
+# -- Python alternatives --
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 
-# ── Utilisateur cape (non-root) ────────────────────────────────
+# -- Create cape user (non-root) --
 RUN groupadd -r cape && \
     groupadd -f libvirt && \
     groupadd -f libvirt-qemu && \
     groupadd -f pcap && \
     useradd -r -g cape -G sudo,libvirt,libvirt-qemu,pcap -m -s /bin/bash cape && \
     echo "cape ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
-    # Autoriser tcpdump sans root
+    # Allow tcpdump without root
     chgrp pcap /usr/bin/tcpdump && \
     chmod 750 /usr/bin/tcpdump && \
     setcap cap_net_raw,cap_net_admin=eip /usr/bin/tcpdump || true
 
-# ── Clonage CAPEv2 ────────────────────────────────────────────
+# -- Clone CAPEv2 --
 RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} && \
     chown -R cape:cape ${CAPE_ROOT} && \
     sed -i 's/cryptography>=.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true && \
@@ -99,24 +99,24 @@ RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} &&
     sed -i 's/pyopenssl>=.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true && \
     sed -i 's/pyopenssl==.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true
 
-# ── Installation des dépendances Python CAPE ──────────────────
+# -- Install CAPE Python dependencies --
 WORKDIR ${CAPE_ROOT}
 
-# Nettoyer pycparser pré-installé par le système pour éviter l'erreur de désinstallation distutils
+# Remove system-installed pycparser to avoid distutils uninstall errors
 RUN apt-get remove -y python3-pycparser || true && \
     rm -rf /usr/lib/python3/dist-packages/pycparser* /usr/lib/python3/dist-packages/_pycparser* || true
 
-# Installer poetry (gestionnaire de dépendances recommandé par CAPE)
+# Install poetry (dependency manager recommended by CAPE)
 RUN pip3 install --upgrade pip && \
     pip3 install poetry "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26"
 
-# Installer les dépendances via poetry (recommandé et verrouillé, évite les conflits)
-# Si Poetry échoue, repli sur pip3 avec des contraintes strictes
+# Install dependencies via poetry (recommended, locked, avoids conflicts)
+# Falls back to pip if poetry fails
 RUN poetry config virtualenvs.create false && \
     poetry install --no-root || \
     (pip3 install "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26" && pip3 install -r ${CAPE_ROOT}/requirements.txt)
 
-# Installer des dépendances spécifiques essentielles
+# Install essential specific dependencies
 RUN pip3 install \
     psycopg2-binary \
     pymongo \
@@ -131,7 +131,7 @@ RUN pip3 install \
     orjson \
     gunicorn
 
-# ── Configuration des répertoires ─────────────────────────────
+# -- Configure directories --
 RUN mkdir -p \
     ${CAPE_ROOT}/storage/analyses \
     ${CAPE_ROOT}/storage/binaries \
@@ -141,7 +141,7 @@ RUN mkdir -p \
     /opt/vbox && \
     chown -R cape:cape ${CAPE_ROOT} /work /opt/vbox
 
-# ── Copie des configurations par défaut ───────────────────────
+# -- Copy default configurations --
 RUN if [ -d "${CAPE_ROOT}/conf/default" ]; then \
         cp ${CAPE_ROOT}/conf/default/*.default ${CAPE_ROOT}/conf/ && \
         for f in ${CAPE_ROOT}/conf/*.default; do \
@@ -149,12 +149,12 @@ RUN if [ -d "${CAPE_ROOT}/conf/default" ]; then \
         done; \
     fi || true
 
-# ── Copie des scripts d'entrée ────────────────────────────────
+# -- Copy entrypoint scripts --
 COPY scripts/entrypoint.sh /entrypoint.sh
 COPY scripts/configure-cape.py /configure-cape.py
 RUN chmod +x /entrypoint.sh /configure-cape.py
 
-# ── Volume pour les données persistantes ──────────────────────
+# -- Persistent data volume --
 VOLUME ["/work"]
 
 WORKDIR ${CAPE_ROOT}

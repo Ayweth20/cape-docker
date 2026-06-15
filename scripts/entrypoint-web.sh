@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# entrypoint-web.sh — Point d'entrée de l'interface web CAPE
+# entrypoint-web.sh -- CAPE Web Interface entrypoint
 # ============================================================
 set -e
 
@@ -16,33 +16,33 @@ CAPE_WEB_PORT="${CAPE_WEB_PORT:-8000}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WEB] $*"; }
 
-# ── 1. Attendre PostgreSQL ────────────────────────────────────
-log "Attente de PostgreSQL sur ${POSTGRES_HOST}:${POSTGRES_PORT}..."
+# -- 1. Wait for PostgreSQL --
+log "Waiting for PostgreSQL on ${POSTGRES_HOST}:${POSTGRES_PORT}..."
 MAX_RETRIES=30
 RETRIES=0
 until PGPASSWORD="${POSTGRES_PASSWORD}" pg_isready -h "${POSTGRES_HOST}" -p "${POSTGRES_PORT}" -U "${POSTGRES_USER}" > /dev/null 2>&1; do
     RETRIES=$((RETRIES + 1))
     if [ $RETRIES -ge $MAX_RETRIES ]; then
-        log "ERREUR : PostgreSQL indisponible."
+        log "ERROR: PostgreSQL unavailable."
         exit 1
     fi
     sleep 5
 done
-log "PostgreSQL prêt : OK"
+log "PostgreSQL ready: OK"
 
-# ── 2. Attendre MongoDB ───────────────────────────────────────
-log "Attente de MongoDB sur ${MONGO_HOST}:${MONGO_PORT}..."
+# -- 2. Wait for MongoDB --
+log "Waiting for MongoDB on ${MONGO_HOST}:${MONGO_PORT}..."
 RETRIES=0
 until python3 -c "import pymongo; pymongo.MongoClient('${MONGO_HOST}', ${MONGO_PORT}).server_info()" > /dev/null 2>&1; do
     RETRIES=$((RETRIES + 1))
     if [ $RETRIES -ge 20 ]; then
-        log "AVERTISSEMENT : MongoDB indisponible. L'interface peut fonctionner partiellement."
+        log "WARNING: MongoDB unavailable. The web interface may operate with limited functionality."
         break
     fi
     sleep 5
 done
 
-# ── 3. Liens symboliques conf/storage depuis /work ────────────
+# -- 3. Symlink conf/storage from /work --
 WORK="/work"
 mkdir -p "$WORK/tmp"
 chmod 777 "$WORK/tmp" || true
@@ -55,14 +55,14 @@ for dir in conf storage; do
     fi
 done
 
-# ── 4. Configuration Django ───────────────────────────────────
-log "Configuration de l'interface web..."
+# -- 4. Django configuration --
+log "Configuring web interface..."
 cd "${CAPE_ROOT}/web"
 
-# Créer le fichier de configuration local si absent
+# Create local settings file if it does not exist
 if [ ! -f "${CAPE_ROOT}/web/local_settings.py" ]; then
     cat > "${CAPE_ROOT}/web/local_settings.py" << EOF
-# Configuration locale auto-générée
+# Auto-generated local configuration
 import os
 
 DATABASES = {
@@ -83,8 +83,8 @@ ALLOWED_HOSTS = ["*"]
 EOF
 fi
 
-# ── 4.5 Injection de WhiteNoise (fichiers statiques) ──────────
-log "Injection de WhiteNoise pour le support des fichiers statiques..."
+# -- 4.5 Inject WhiteNoise (static file serving) --
+log "Injecting WhiteNoise for static file support..."
 python3 -c "
 settings_path = '${CAPE_ROOT}/web/web/settings.py'
 with open(settings_path, 'r') as f:
@@ -106,16 +106,16 @@ with open(settings_path, 'w') as f:
     f.write(content)
 "
 
-# Migrations Django
-log "Exécution des migrations Django..."
-python3 manage.py migrate --noinput 2>/dev/null || log "Migrations ignorées"
+# Django migrations
+log "Running Django migrations..."
+python3 manage.py migrate --noinput 2>/dev/null || log "Migrations skipped"
 
-# Collecter les fichiers statiques
-python3 manage.py collectstatic --noinput || log "collectstatic ignoré"
+# Collect static files
+python3 manage.py collectstatic --noinput || log "collectstatic skipped"
 
-# ── 5. Démarrer Gunicorn ──────────────────────────────────────
-log "Démarrage de Gunicorn sur le port ${CAPE_WEB_PORT}..."
-log "Interface disponible sur : http://0.0.0.0:${CAPE_WEB_PORT}"
+# -- 5. Start Gunicorn --
+log "Starting Gunicorn on port ${CAPE_WEB_PORT}..."
+log "Web interface available at: http://0.0.0.0:${CAPE_WEB_PORT}"
 
 exec gunicorn \
     --bind "0.0.0.0:${CAPE_WEB_PORT}" \

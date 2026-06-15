@@ -1,226 +1,182 @@
-# CAPEv2 Docker 🦆
+# CAPEv2 Docker
 
-Déploiement de [CAPEv2](https://github.com/kevoreilly/CAPEv2) (Malware Configuration And Payload Extraction) avec Docker et **KVM/QEMU** comme hyperviseur.
+Deploy [CAPEv2](https://github.com/kevoreilly/CAPEv2) (Malware Configuration And Payload Extraction) using Docker with **KVM/QEMU** as the hypervisor.
 
-> Inspiré de [celyrin/cape-docker](https://github.com/celyrin/cape-docker), modernisé avec KVM natif Linux, docker-compose multi-services et configuration automatique.
+Inspired by [celyrin/cape-docker](https://github.com/celyrin/cape-docker), reworked for native Linux KVM, multi-service orchestration, and environment-driven configuration.
 
-## Architecture
+## Overview
+
+This project containerizes the CAPEv2 malware analysis sandbox while keeping KVM/libvirt on the host for VM management. The Docker stack handles all supporting services (database, web UI, task queue) and communicates with the host hypervisor through a mounted libvirt socket.
 
 ```
-┌─────────────────────────────── Host Ubuntu 22.04/24.04 ──────────────────────────────────┐
-│                                                                                            │
-│  ┌──────────────────────────── docker-compose ────────────────────────────────┐           │
-│  │                                                                             │           │
-│  │  cape-sandbox  ←→  postgresql  ←→  mongodb  ←→  redis  ←→  cape-web  ←→ nginx        │
-│  │      │                                                           │          │           │
-│  │      │ (--net=host)                                      (port 8000)  (port 80)        │
-│  └──────┼──────────────────────────────────────────────────────────────────────┘           │
-│         │                                                                                  │
-│         │ /var/run/libvirt/libvirt-sock (volume monté)                                    │
-│         ↓                                                                                  │
-│  ┌──────────────────────────── KVM/libvirt ───────────────────────────────────┐           │
-│  │   VM Windows (win10) — réseau virbr1 (192.168.122.0/24)                   │           │
-│  │   Agent CAPE dans la VM → envoie les résultats au Result Server            │           │
-│  └────────────────────────────────────────────────────────────────────────────┘           │
-└────────────────────────────────────────────────────────────────────────────────────────────┘
+Host (Ubuntu 22.04/24.04)
+|
+|-- docker-compose
+|   |-- cape-sandbox    (analysis engine, --net=host)
+|   |-- cape-web        (Django UI, port 8000)
+|   |-- postgresql      (task database)
+|   |-- mongodb         (results storage)
+|   +-- redis           (task queue)
+|
++-- KVM/libvirt
+    +-- Windows VM (virbr1, isolated network)
+        +-- CAPE agent --> ResultServer (port 2042)
 ```
 
-## Prérequis
+### Key differences from celyrin/cape-docker
 
-- **OS Host** : Ubuntu 22.04 ou 24.04 LTS (bare-metal ou VM avec nested-virt activé)
-- **Docker** + **docker-compose v2**
-- **KVM/QEMU** + **libvirt** (installés par `setup-host.sh`)
-- **Image Windows** (Win7 SP1, Win10, Win11) pour créer la VM d'analyse
+| | celyrin/cape-docker | This project |
+|---|---|---|
+| Hypervisor | VirtualBox | KVM/QEMU |
+| VM bridge | Custom Go binaries (`vbox-server`/`vbox-client`) | Native libvirt socket |
+| Architecture | Monolithic container | Multi-service (5 containers) |
+| Configuration | Manual | Automatic via `.env` |
+| Go compiler | Required | Not required |
 
-## Démarrage rapide
+## Prerequisites
 
-### 1. Configurer le host (KVM + réseau)
+- Ubuntu 22.04 or 24.04 LTS (bare-metal or nested-virt capable VM)
+- Docker Engine + docker-compose v2
+- A Windows ISO (Win7 SP1 / Win10 / Win11)
+
+KVM, QEMU, and libvirt are installed automatically by `setup-host.sh`.
+
+## Quick Start
+
+### 1. Prepare the host
 
 ```bash
-cd cape-docker/
 sudo bash setup-host.sh
 ```
 
-Ce script installe KVM, libvirt, configure le réseau `virbr1` (192.168.122.0/24) et les permissions.
+Installs KVM/libvirt, creates an isolated network on `virbr1`, and configures iptables rules.
 
-### 2. Configurer l'environnement
+### 2. Create your environment file
 
 ```bash
-cp .env .env.local
-nano .env  # Adaptez les paramètres à votre infrastructure
+cp .env.example .env
 ```
 
-Variables importantes :
-| Variable | Défaut | Description |
-|---|---|---|
-| `VM1_LABEL` | `win10` | Nom de la VM KVM |
-| `VM1_IP` | `192.168.122.105` | IP de la VM d'analyse |
-| `VM1_SNAPSHOT` | `cape-snapshot` | Nom du snapshot à restaurer |
-| `POSTGRES_PASSWORD` | `SuperPuperSecret` | **À changer !** |
-| `CAPE_RESULTSERVER_IP` | `192.168.122.1` | IP du résultserver vu par la VM |
+Edit `.env` and set at minimum:
 
-### 3. Préparer la VM Windows
+| Variable | Description |
+|---|---|
+| `POSTGRES_PASSWORD` | Database password |
+| `CAPE_SECRET_KEY` | Django secret key |
+| `CAPE_RESULTSERVER_IP` | Host bridge IP reachable by VMs |
+| `VM1_LABEL` | libvirt VM name |
+| `VM1_IP` | Static IP of the analysis VM |
+| `VM1_SNAPSHOT` | Snapshot to restore before each analysis |
+
+### 3. Prepare the Windows VM
 
 ```bash
-# Voir les instructions complètes
+# Interactive guide
 python3 scripts/prepare-vm.py --instructions
 
-# Vérifier l'état des VMs KVM
+# Verify KVM sees the VM
 python3 scripts/prepare-vm.py --list
 
-# Après installation de la VM et de l'agent CAPE :
-virsh snapshot-create-as win10 cape-snapshot --atomic
+# Test agent connectivity
+python3 scripts/prepare-vm.py --test-agent <vm-name> <vm-ip>
 ```
 
-> **Important** : La VM Windows doit avoir l'[agent CAPE](https://github.com/kevoreilly/CAPEv2/blob/master/agent/agent.py) en autostart et une IP statique dans 192.168.122.0/24.
+The VM must have:
+- A static IP within your analysis subnet
+- Windows Defender / Firewall disabled
+- The [CAPE agent](https://github.com/kevoreilly/CAPEv2/blob/master/agent/agent.py) running at startup
+- A clean snapshot created after setup
 
-### 4. Démarrer CAPEv2
+### 4. Build and start
 
 ```bash
-# Premier démarrage (build + lancement)
 docker-compose up -d --build
+```
 
-# Voir les logs
+### 5. Access the web interface
+
+```
+http://<host-ip>:8000
+```
+
+## Project Structure
+
+```
+.
+|-- docker-compose.yml        # Service orchestration
+|-- .env.example              # Configuration template
+|-- Dockerfile                # Sandbox image (analysis + KVM)
+|-- Dockerfile.web            # Web UI image (Django + Gunicorn)
+|-- setup-host.sh             # One-time host preparation
+|-- scripts/
+|   |-- entrypoint.sh         # Sandbox container init
+|   |-- entrypoint-web.sh     # Web container init
+|   |-- configure-cape.py     # Generates CAPE configs from env vars
+|   +-- prepare-vm.py         # VM setup helper
+|-- nginx/
+|   +-- cape.conf             # Nginx reverse proxy config
++-- data/                     # Persistent volumes (gitignored)
+```
+
+## Usage
+
+```bash
+# Submit a sample
+docker-compose exec cape-sandbox python3 utils/submit.py /path/to/sample.exe
+
+# View logs
 docker-compose logs -f cape-sandbox
 docker-compose logs -f cape-web
 
-# Vérifier l'état
-docker-compose ps
-```
-
-### 5. Accéder à l'interface
-
-Ouvrez **http://localhost** (via Nginx) ou **http://localhost:8000** (direct).
-
----
-
-## Structure du projet
-
-```
-cape-docker/
-├── docker-compose.yml          # Orchestration des 5 services
-├── .env                        # Variables de configuration (éditez ce fichier)
-├── Dockerfile                  # Image sandbox principale (analyse + KVM)
-├── Dockerfile.web              # Image interface web (Django + Gunicorn)
-├── setup-host.sh               # Script de préparation du host (KVM, réseau)
-├── .dockerignore
-├── scripts/
-│   ├── entrypoint.sh           # Démarrage du conteneur sandbox
-│   ├── entrypoint-web.sh       # Démarrage de l'interface web
-│   ├── configure-cape.py       # Configuration auto depuis les env vars
-│   └── prepare-vm.py           # Aide à la préparation des VMs
-├── nginx/
-│   ├── cape.conf               # Configuration Nginx (reverse proxy)
-│   └── ssl/                    # Certificats SSL (optionnel)
-└── data/                       # Données persistantes (auto-créées)
-    ├── cape/                   # Conf, storage, logs CAPE
-    ├── postgresql/             # Données PostgreSQL
-    └── mongodb/                # Données MongoDB
-```
-
----
-
-## Services Docker
-
-| Service | Image | Port | Rôle |
-|---|---|---|---|
-| `cape-sandbox` | `cape-sandbox:latest` | — | Moteur d'analyse, communique avec KVM |
-| `postgresql` | `postgres:16-alpine` | interne | Base de données des tâches |
-| `mongodb` | `mongo:7.0` | interne | Stockage des résultats |
-| `redis` | `redis:7-alpine` | interne | File de tâches |
-| `cape-web` | `cape-web:latest` | `8000` | Interface Django |
-| `nginx` | `nginx:1.27-alpine` | `80`, `443` | Reverse proxy |
-
----
-
-## Différences avec celyrin/cape-docker (VirtualBox)
-
-| | celyrin/cape-docker | Ce projet |
-|---|---|---|
-| **Hyperviseur** | VirtualBox | **KVM/QEMU** |
-| **Bridge VM-Conteneur** | `vbox-server.go` + `vbox-client.go` | Socket libvirt natif |
-| **Réseau** | `--net=host` + vbox.sock | `--net=host` + `/var/run/libvirt/libvirt-sock` |
-| **Services** | Container monolithique | **Multi-services** (6 conteneurs) |
-| **Config** | Manuelle | **Automatique** via variables d'env |
-| **Architecture Go** | Requis (compiler) | **Non requis** |
-
----
-
-## Commandes utiles
-
-```bash
-# Soumettre un sample pour analyse
-docker-compose exec cape-sandbox python3 utils/submit.py /chemin/vers/malware.exe
-
-# Voir les analyses en cours
-docker-compose exec cape-sandbox python3 utils/process.py -r 1
-
-# Accéder au shell du sandbox
+# Access sandbox shell
 docker-compose exec cape-sandbox bash
 
-# Lister les VMs disponibles depuis le conteneur
+# List VMs from inside the container
 docker-compose exec cape-sandbox virsh -c qemu:///system list --all
 
-# Redémarrer un service spécifique
-docker-compose restart cape-sandbox
-
-# Mettre à jour CAPE
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
+# Rebuild after changes
+docker-compose down && docker-compose up -d --build
 ```
 
----
+## Multi-VM Support
 
-## Dépannage
+Additional VMs can be defined in `.env` using the `VM2_*` through `VM9_*` prefixes:
 
-### Le socket libvirt n'est pas trouvé
 ```bash
-# Sur le host :
-sudo systemctl start libvirtd
-ls -la /var/run/libvirt/libvirt-sock
+VM2_LABEL=win7sp1
+VM2_IP=192.168.100.11
+VM2_SNAPSHOT=clean
+VM2_PLATFORM=windows
+VM2_ARCH=x64
+VM2_TAGS=win7
 ```
 
-### La VM ne répond pas
-```bash
-# Vérifier que la VM est démarrée
-virsh list --all
-virsh start win10
+The configuration script picks them up automatically at container startup.
 
-# Vérifier la connectivité réseau
-ping 192.168.122.105
-```
+## Troubleshooting
 
-### L'agent CAPE n'est pas joignable
-```bash
-# Depuis le host, tester le port 8000 de la VM
-telnet 192.168.122.105 8000
-python3 scripts/prepare-vm.py --test-agent win10 192.168.122.105
-```
+| Problem | Solution |
+|---|---|
+| Libvirt socket not found | `sudo systemctl start libvirtd` on the host |
+| VM not responding to ping | Check `virsh list --all` and `virsh start <vm>` |
+| CAPE agent unreachable | Verify agent.py is running + firewall is off in the VM |
+| Permission denied on libvirt | `sudo usermod -aG libvirt $USER && newgrp libvirt` |
+| Database connection refused | Wait for healthchecks or check `docker-compose ps` |
 
-### Problèmes de permissions libvirt
-```bash
-# Ajouter l'utilisateur au groupe libvirt
-sudo usermod -aG libvirt $USER
-newgrp libvirt
-```
+## Security Considerations
 
----
+- Change `POSTGRES_PASSWORD` and `CAPE_SECRET_KEY` before deploying.
+- The analysis network is isolated by default (no NAT). VMs can only reach the ResultServer.
+- Do not expose port 8000 to the Internet without authentication and TLS.
+- Use the provided `nginx/cape.conf` or a reverse proxy like Traefik for production access.
 
-## Sécurité
-
-> ⚠️ **Ce déploiement est prévu pour un usage en sandbox isolé.**
-
-- Changez `POSTGRES_PASSWORD` et `CAPE_SECRET_KEY` dans `.env`
-- En production : mettez en place HTTPS (voir `nginx/cape.conf`)
-- Considérez d'isoler le réseau d'analyse (désactiver NAT dans `setup-host.sh`)
-- Ne jamais exposer l'interface CAPE directement sur Internet sans authentification
-
----
-
-## Références
+## References
 
 - [CAPEv2 Documentation](https://capev2.readthedocs.io/)
 - [kevoreilly/CAPEv2](https://github.com/kevoreilly/CAPEv2)
-- [celyrin/cape-docker](https://github.com/celyrin/cape-docker) (inspiration)
+- [celyrin/cape-docker](https://github.com/celyrin/cape-docker)
 - [cape2.sh installer](https://github.com/kevoreilly/CAPEv2/blob/master/installer/cape2.sh)
+
+## License
+
+This project is provided as-is for research and educational purposes.

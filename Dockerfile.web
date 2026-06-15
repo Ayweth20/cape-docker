@@ -1,5 +1,5 @@
 # ============================================================
-# Dockerfile.web — CAPE Web Interface (Django)
+# Dockerfile.web -- CAPE Web Interface (Django)
 # ============================================================
 
 FROM ubuntu:22.04
@@ -9,12 +9,12 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 LABEL description="CAPEv2 Web Interface - Django + Gunicorn"
 
-# ── Timezone ──────────────────────────────────────────────────
+# -- Timezone --
 RUN apt-get update && apt-get install -y tzdata && \
     ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
-# ── Dépendances système légères ───────────────────────────────
+# -- Lightweight system dependencies --
 RUN apt-get update && apt-get install -y \
     python3.10 \
     python3.10-dev \
@@ -31,11 +31,11 @@ RUN apt-get update && apt-get install -y \
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
 
-# ── Utilisateur cape ──────────────────────────────────────────
+# -- Create cape user --
 RUN groupadd -r cape && \
     useradd -r -g cape -m -s /bin/bash cape
 
-# ── Clone CAPEv2 ─────────────────────────────────────────────
+# -- Clone CAPEv2 --
 RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} && \
     chown -R cape:cape ${CAPE_ROOT} && \
     sed -i 's/cryptography>=.*/cryptography<46/g' ${CAPE_ROOT}/requirements.txt || true && \
@@ -44,28 +44,28 @@ RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} &&
     sed -i 's/pyopenssl>=.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true && \
     sed -i 's/pyopenssl==.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true
 
-# ── Dépendances Python Web ────────────────────────────────────
+# -- Python web dependencies --
 WORKDIR ${CAPE_ROOT}
 
-# Nettoyer pycparser pré-installé par le système pour éviter l'erreur de désinstallation distutils
+# Remove system-installed pycparser to avoid distutils uninstall errors
 RUN apt-get remove -y python3-pycparser || true && \
     rm -rf /usr/lib/python3/dist-packages/pycparser* /usr/lib/python3/dist-packages/_pycparser* || true
 
-# Installer poetry et les pré-requis systèmes
+# Install poetry and system-level prerequisites
 RUN pip3 install --upgrade pip && \
     pip3 install poetry "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26" \
         django gunicorn whitenoise djangorestframework django-extensions pyzipper
 
-# Installer l'ensemble des dépendances de CAPE via poetry pour assurer la présence de tous les modules (pytz, etc.)
-# Repli sur pip3 robuste en cas d'échec
+# Install all CAPE dependencies via poetry to ensure all modules are present (pytz, etc.)
+# Falls back to pip if poetry fails
 RUN poetry config virtualenvs.create false && \
     poetry install --no-root || \
     (pip3 install "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26" && pip3 install -r ${CAPE_ROOT}/requirements.txt)
 
-# Assurer la présence des packages Django et Web spécifiques
+# Ensure Django and web-specific packages are present
 RUN pip3 install django gunicorn whitenoise djangorestframework django-extensions pyzipper psycopg2-binary
 
-# ── Configuration ─────────────────────────────────────────────
+# -- Configuration --
 RUN mkdir -p /work && chown -R cape:cape /work ${CAPE_ROOT}
 
 COPY scripts/entrypoint-web.sh /entrypoint-web.sh

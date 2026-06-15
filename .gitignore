@@ -10,6 +10,9 @@ data/
 .env.local
 .env.*.local
 
+# Traefik override (contains production-specific domain and IP whitelist)
+docker-compose.traefik.yml
+
 # SSL
 nginx/ssl/*.pem
 nginx/ssl/*.crt

@@ -1,8 +1,8 @@
-# CAPEv2 Docker — .dockerignore
+# CAPEv2 Docker -- .dockerignore
 # ============================================================
-# Évite d'inclure des fichiers inutiles dans le contexte de build
+# Exclude unnecessary files from the build context
 
-# Données persistantes
+# Persistent data
 data/
 *.log
 
@@ -10,7 +10,7 @@ data/
 .git/
 .gitignore
 
-# Environnements Python
+# Python environments
 __pycache__/
 *.py[cod]
 *.pyo

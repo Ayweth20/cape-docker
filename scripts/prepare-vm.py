@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-prepare-vm.py — Script d'aide pour préparer une VM Windows pour CAPE
-Génère les instructions et vérifie l'état des VMs KVM disponibles.
+prepare-vm.py -- Helper script for preparing a Windows VM for CAPE.
+Generates setup instructions and checks the status of available KVM VMs.
 
 Usage: python3 prepare-vm.py [--check] [--list]
 """
@@ -20,58 +20,58 @@ def run(cmd, capture=True):
 
 
 def list_vms():
-    """Lister les VMs KVM disponibles."""
-    print("\n=== VMs KVM disponibles ===")
+    """List available KVM VMs."""
+    print("\n=== Available KVM VMs ===")
     out, rc = run("virsh list --all")
     if rc != 0:
-        print("⚠  Impossible de lister les VMs (libvirt accessible ?)")
+        print("[!] Unable to list VMs (is libvirt accessible?)")
         return
     print(out)
 
 
 def list_networks():
-    """Lister les réseaux libvirt."""
-    print("\n=== Réseaux libvirt ===")
+    """List libvirt networks."""
+    print("\n=== Libvirt Networks ===")
     out, rc = run("virsh net-list --all")
     if rc != 0:
-        print("⚠  Impossible de lister les réseaux")
+        print("[!] Unable to list networks")
         return
     print(out)
 
 
 def check_vm(vm_label):
-    """Vérifier une VM spécifique."""
-    print(f"\n=== Vérification de la VM '{vm_label}' ===")
+    """Check a specific VM."""
+    print(f"\n=== Checking VM '{vm_label}' ===")
 
     out, rc = run(f"virsh dominfo {vm_label}")
     if rc != 0:
-        print(f"✗ VM '{vm_label}' non trouvée dans libvirt")
+        print(f"[x] VM '{vm_label}' not found in libvirt")
         return False
 
     print(out)
 
-    # Vérifier les snapshots
+    # Check snapshots
     snap_out, snap_rc = run(f"virsh snapshot-list {vm_label}")
     print(f"\n--- Snapshots ---")
-    print(snap_out if snap_rc == 0 else "Aucun snapshot trouvé")
+    print(snap_out if snap_rc == 0 else "No snapshots found")
 
     return True
 
 
 def check_agent_connectivity(vm_ip, vm_label):
-    """Tester la connectivité avec l'agent CAPE dans la VM."""
-    print(f"\n=== Test agent CAPE sur {vm_ip} ===")
+    """Test connectivity with the CAPE agent running in the VM."""
+    print(f"\n=== Testing CAPE agent on {vm_ip} ===")
 
     # Ping
     _, rc = run(f"ping -c 1 -W 2 {vm_ip}")
     if rc == 0:
-        print(f"✓ VM '{vm_label}' ({vm_ip}) répond au ping")
+        print(f"[+] VM '{vm_label}' ({vm_ip}) responds to ping")
     else:
-        print(f"✗ VM '{vm_label}' ({vm_ip}) ne répond pas au ping")
-        print("  → VM démarrée ? Réseau virbr1 configuré ?")
+        print(f"[x] VM '{vm_label}' ({vm_ip}) does not respond to ping")
+        print("    -> Is the VM running? Is virbr1 configured?")
         return
 
-    # Test port agent CAPE (8000 par défaut)
+    # Test CAPE agent port (8000 by default)
     import socket
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -79,69 +79,69 @@ def check_agent_connectivity(vm_ip, vm_label):
         result = sock.connect_ex((vm_ip, 8000))
         sock.close()
         if result == 0:
-            print(f"✓ Agent CAPE accessible sur {vm_ip}:8000")
+            print(f"[+] CAPE agent accessible on {vm_ip}:8000")
         else:
-            print(f"✗ Agent CAPE non accessible sur {vm_ip}:8000")
-            print("  → agent.py démarré dans la VM Windows ?")
+            print(f"[x] CAPE agent not accessible on {vm_ip}:8000")
+            print("    -> Is agent.py running inside the Windows VM?")
     except Exception as e:
-        print(f"⚠  Erreur de connexion : {e}")
+        print(f"[!] Connection error: {e}")
 
 
 def print_vm_setup_instructions():
-    """Afficher les instructions de setup de la VM Windows."""
+    """Print Windows VM setup instructions."""
     print("""
-╔══════════════════════════════════════════════════════════════╗
-║         Guide de préparation de la VM Windows pour CAPE      ║
-╠══════════════════════════════════════════════════════════════╣
+================================================================
+    Windows VM Preparation Guide for CAPE
+================================================================
 
-1. CRÉER LA VM KVM
-   ─────────────────
+1. CREATE THE KVM VM
+   ------------------
    virt-install \\
      --name win10 \\
      --ram 4096 \\
      --vcpus 2 \\
      --disk path=/var/lib/libvirt/images/win10.qcow2,size=60 \\
-     --cdrom /chemin/vers/Win10.iso \\
+     --cdrom /path/to/Win10.iso \\
      --os-variant win10 \\
      --network network=cape-analysis \\
      --graphics vnc,listen=0.0.0.0 \\
      --noautoconsole
 
-   Connectez-vous via VNC :
+   Connect via VNC:
    virt-viewer --connect qemu:///system win10
 
-2. CONFIGURATION WINDOWS
-   ──────────────────────
-   Dans la VM Windows :
-   • Désactiver Windows Defender et Windows Update
-   • Désactiver le pare-feu Windows
-   • Configurer l'IP statique : 192.168.122.105 / 255.255.255.0
-     Passerelle : 192.168.122.1 / DNS : 8.8.8.8
+2. CONFIGURE WINDOWS
+   ------------------
+   Inside the Windows VM:
+   - Disable Windows Defender and Windows Update
+   - Disable Windows Firewall
+   - Set a static IP: 192.168.122.105 / 255.255.255.0
+     Gateway: 192.168.122.1 / DNS: 8.8.8.8
 
-3. INSTALLER L'AGENT CAPE
-   ─────────────────────────
-   • Copier le fichier agent/agent.py depuis le dépôt CAPEv2
-   • Installer Python dans la VM Windows
-   • Créer un autostart : copier agent.py dans le dossier Startup
-     ou créer un service Windows
+3. INSTALL THE CAPE AGENT
+   -----------------------
+   - Copy agent/agent.py from the CAPEv2 repository
+   - Install Python in the Windows VM
+   - Set up autostart: copy agent.py to the Startup folder
+     or create a Windows service
 
-   Pour copier l'agent via SCP (si SSH dispo) :
+   To copy the agent via SCP (if SSH is available):
    scp /opt/CAPEv2/agent/agent.py user@192.168.122.105:C:\\\\Users\\\\Public\\\\agent.py
 
-4. CRÉER LE SNAPSHOT
-   ───────────────────
-   Éteindre proprement la VM Windows, puis :
-   
+4. CREATE THE SNAPSHOT
+   --------------------
+   Shut down the Windows VM cleanly, then:
+
    virsh snapshot-create-as win10 cape-snapshot \\
      --description "CAPE analysis snapshot" \\
      --atomic
 
-   Vérifier :
+   Verify:
    virsh snapshot-list win10
 
-5. CONFIGURER .env
-   ─────────────────
-   Éditez le fichier .env :
+5. CONFIGURE .env
+   ----------------
+   Edit the .env file:
    VM1_LABEL=win10
    VM1_IP=192.168.122.105
    VM1_SNAPSHOT=cape-snapshot
@@ -149,22 +149,22 @@ def print_vm_setup_instructions():
    VM1_ARCH=x64
    VM1_TAGS=win10
 
-6. LANCER CAPE
-   ────────────
+6. START CAPE
+   -----------
    docker-compose up -d
    docker-compose logs -f cape-sandbox
 
-╚══════════════════════════════════════════════════════════════╝
+================================================================
 """)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Aide à la préparation des VMs pour CAPE")
-    parser.add_argument("--list", action="store_true", help="Lister les VMs et réseaux KVM")
-    parser.add_argument("--check", metavar="VM_LABEL", help="Vérifier une VM spécifique")
+    parser = argparse.ArgumentParser(description="Helper for preparing VMs for CAPE")
+    parser.add_argument("--list", action="store_true", help="List KVM VMs and networks")
+    parser.add_argument("--check", metavar="VM_LABEL", help="Check a specific VM")
     parser.add_argument("--test-agent", nargs=2, metavar=("VM_LABEL", "VM_IP"),
-                        help="Tester la connectivité de l'agent CAPE")
-    parser.add_argument("--instructions", action="store_true", help="Afficher le guide de setup")
+                        help="Test CAPE agent connectivity")
+    parser.add_argument("--instructions", action="store_true", help="Show the setup guide")
     args = parser.parse_args()
 
     if args.list:
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     elif args.instructions:
         print_vm_setup_instructions()
     else:
-        # Sans argument : tout afficher
+        # No arguments: show everything
         list_vms()
         list_networks()
         print_vm_setup_instructions()
