@@ -60,8 +60,8 @@ log "Configuring web interface..."
 cd "${CAPE_ROOT}/web"
 
 # Create local settings file if it does not exist
-if [ ! -f "${CAPE_ROOT}/web/local_settings.py" ]; then
-    cat > "${CAPE_ROOT}/web/local_settings.py" << EOF
+if [ ! -f "${CAPE_ROOT}/web/web/local_settings.py" ]; then
+    cat > "${CAPE_ROOT}/web/web/local_settings.py" << EOF
 # Auto-generated local configuration
 import os
 

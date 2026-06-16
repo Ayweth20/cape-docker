@@ -171,6 +171,7 @@ services:
       CAPE_WEB_PORT: ${CAPE_WEB_PORT:-8000}
     volumes:
       - ${CAPE_WORK_DIR:-./data/cape}:/work
+      - ./templates/analysis/overview/_screenshots.html:/opt/CAPEv2/web/templates/analysis/overview/_screenshots.html
     network_mode: host
     depends_on:
       postgresql:
