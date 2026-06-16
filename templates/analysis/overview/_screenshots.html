@@ -3,17 +3,12 @@
     <div class="card bg-dark border-secondary">
         <div class="card-header border-secondary d-flex justify-content-between align-items-center">
             <h5 class="mb-0 text-white"><i class="fas fa-images me-2 text-info"></i> Screenshots</h5>
-            <span class="badge bg-info text-dark">{{ analysis.shots|length }} image(s)</span>
+            <span class="badge bg-info text-dark" id="screenshotCounter">1 / {{ analysis.shots|length }}</span>
         </div>
         <div class="card-body">
-            <div id="screenshotCarousel" class="carousel slide" data-bs-ride="false" data-ride="false" style="max-width: 900px; margin: 0 auto 50px auto;">
-                <!-- Indicators/dots -->
-                <div class="carousel-indicators" style="bottom: -40px; margin-bottom: 0;">
-                    {% for shot in analysis.shots %}
-                        <button type="button" data-bs-target="#screenshotCarousel" data-target="#screenshotCarousel" data-bs-slide-to="{{ forloop.index0 }}" data-slide-to="{{ forloop.index0 }}" class="{% if forloop.first %}active{% endif %}" {% if forloop.first %}aria-current="true" class="active"{% endif %} aria-label="Slide {{ shot }}" style="background-color: #0dcaf0; width: 30px; height: 4px; border: none;"></button>
-                    {% endfor %}
-                </div>
-
+            <!-- Carousel container -->
+            <div id="screenshotCarousel" class="carousel slide" data-bs-ride="false" data-ride="false" style="max-width: 900px; margin: 0 auto;">
+                
                 <!-- The slideshow/carousel -->
                 <div class="carousel-inner text-center">
                     {% for shot in analysis.shots %}
@@ -38,7 +33,78 @@
                     <span class="visually-hidden">Next</span>
                 </button>
             </div>
+
+            <!-- Interactive Range Slider (Timeline) -->
+            {% if analysis.shots|length > 1 %}
+            <div class="mt-4 mx-auto" style="max-width: 700px;">
+                <label for="screenshotSlider" class="form-label text-white-50 d-flex justify-content-between">
+                    <span><i class="fas fa-history me-1"></i> Timeline</span>
+                    <span id="sliderValue">Screenshot 1</span>
+                </label>
+                <input type="range" class="form-range" id="screenshotSlider" min="0" max="{{ analysis.shots|length|add:'-1' }}" value="0" style="accent-color: #0dcaf0; height: 8px;">
+            </div>
+            {% endif %}
         </div>
     </div>
 </section>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        var carouselEl = document.getElementById('screenshotCarousel');
+        var sliderEl = document.getElementById('screenshotSlider');
+        var counterEl = document.getElementById('screenshotCounter');
+        var sliderValEl = document.getElementById('sliderValue');
+        var totalShots = parseInt("{{ analysis.shots|length }}");
+
+        if (!carouselEl) return;
+
+        // Helper to update UI labels when slide changes
+        function updateUI(index) {
+            if (counterEl) {
+                counterEl.textContent = (index + 1) + " / " + totalShots;
+            }
+            if (sliderEl) {
+                sliderEl.value = index;
+            }
+            if (sliderValEl) {
+                sliderValEl.textContent = "Screenshot " + (index + 1);
+            }
+        }
+
+        // Initialize Bootstrap Carousel if available (Bootstrap 5)
+        var carousel = null;
+        if (window.bootstrap && bootstrap.Carousel) {
+            carousel = new bootstrap.Carousel(carouselEl, {
+                interval: false,
+                ride: false
+            });
+        }
+
+        // Link Range Slider to Carousel
+        if (sliderEl) {
+            sliderEl.addEventListener('input', function() {
+                var slideIndex = parseInt(this.value);
+                updateUI(slideIndex);
+                if (carousel) {
+                    carousel.to(slideIndex);
+                } else if (window.jQuery) {
+                    // Fallback for older Bootstrap (jQuery)
+                    jQuery(carouselEl).carousel(slideIndex);
+                }
+            });
+        }
+
+        // Update Slider when Carousel slides (Bootstrap 5 event)
+        carouselEl.addEventListener('slide.bs.carousel', function(event) {
+            updateUI(event.to);
+        });
+
+        // Fallback update for older Bootstrap (jQuery event)
+        if (window.jQuery) {
+            jQuery(carouselEl).on('slide.bs.carousel', function(event) {
+                updateUI(event.to);
+            });
+        }
+    });
+</script>
 {% endif %}
