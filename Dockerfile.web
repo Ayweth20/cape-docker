@@ -25,6 +25,9 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     libmagic-dev \
     libfuzzy-dev \
+    libvirt-dev \
+    acl \
+    pkg-config \
     postgresql-client \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -43,6 +46,9 @@ RUN git clone --depth=1 https://github.com/kevoreilly/CAPEv2.git ${CAPE_ROOT} &&
     sed -i 's/pyasn1==.*/pyasn1<0.6.0/g' ${CAPE_ROOT}/requirements.txt || true && \
     sed -i 's/pyopenssl>=.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true && \
     sed -i 's/pyopenssl==.*/pyopenssl<26/g' ${CAPE_ROOT}/requirements.txt || true
+
+# Patch libvirt connection to read-only mode in web interface to avoid permission issues
+RUN sed -i 's/conn = libvirt.open(machinery_dsn)/conn = libvirt.openReadOnly(machinery_dsn)/' ${CAPE_ROOT}/web/guac/views.py
 
 # -- Python web dependencies --
 WORKDIR ${CAPE_ROOT}
@@ -63,7 +69,7 @@ RUN poetry config virtualenvs.create false && \
     (pip3 install "cryptography<46" "cffi<2.0.0" "pyasn1<0.6.0" "pyopenssl<26" && pip3 install -r ${CAPE_ROOT}/requirements.txt)
 
 # Ensure Django and web-specific packages are present
-RUN pip3 install django gunicorn whitenoise djangorestframework django-extensions pyzipper psycopg2-binary
+RUN pip3 install django gunicorn whitenoise djangorestframework django-extensions pyzipper psycopg2-binary libvirt-python
 
 # -- Configuration --
 RUN mkdir -p /work && chown -R cape:cape /work ${CAPE_ROOT}

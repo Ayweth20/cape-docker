@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y \
     # libvirt (KVM VM control from inside the container)
     libvirt-clients \
     libvirt-dev \
+    acl \
     python3-libvirt \
     # Utilities
     git \

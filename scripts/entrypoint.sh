@@ -56,6 +56,8 @@ if [ ! -d "$WORK" ]; then
     exit 1
 fi
 chown -R "${CAPE_USER}:${CAPE_USER}" "$WORK"
+chmod 2775 "${WORK}/storage" 2>/dev/null || true
+chmod 2775 "${WORK}/storage/analyses" 2>/dev/null || true
 mkdir -p "$WORK/tmp"
 chown -R cape:cape "$WORK/tmp"
 chmod 775 "$WORK/tmp"
@@ -112,6 +114,117 @@ else
     python3 "${CAPE_ROOT}/utils/rooter.py" &
     log "cape-rooter started in background (PID: $!)"
 fi
+
+# User accounts persistence (siteauth.sqlite stored in /work)
+log "Setting up user account persistence..."
+if [ ! -f "${WORK}/siteauth.sqlite" ]; then
+    cp "${CAPE_ROOT}/web/siteauth.sqlite" "${WORK}/siteauth.sqlite" 2>/dev/null || true
+    cd "${CAPE_ROOT}/web"
+    python3 manage.py migrate --run-syncdb 2>/dev/null || true
+    # Create break-glass admin account (change password after first login)
+    DJANGO_SUPERUSER_PASSWORD="${CAPE_ADMIN_PASSWORD:-CapeAdmin2026!}" \
+      python3 manage.py createsuperuser --noinput \
+        --username "${CAPE_ADMIN_USER:-admin}" \
+        --email "${CAPE_ADMIN_EMAIL:-admin@cape.local}" 2>/dev/null || true
+    log "Admin account created: ${CAPE_ADMIN_USER:-admin}"
+    cd "${CAPE_ROOT}"
+fi
+ln -sf "${WORK}/siteauth.sqlite" "${CAPE_ROOT}/web/siteauth.sqlite"
+chown ${CAPE_USER}:${CAPE_USER} "${WORK}/siteauth.sqlite" 2>/dev/null || true
+chmod 666 "${WORK}/siteauth.sqlite" 2>/dev/null || true
+log "User account persistence: OK"
+
+# Install additional Python dependencies
+log "Installing additional Python dependencies..."
+pip3 install "ImageHash>=4.3.1" --quiet --break-system-packages 2>/dev/null || true
+
+# Volatility3 symbols and patches
+log "Setting up Volatility3..."
+VOL_SYMBOLS=$(python3 -c "import volatility3; print(volatility3.__file__.replace('__init__.py', 'symbols/'))" 2>/dev/null)
+if [ -n "$VOL_SYMBOLS" ]; then
+    # Download Windows symbols if not present
+    if [ ! -d "${VOL_SYMBOLS}/windows/ntkrnlmp.pdb" ]; then
+        log "Downloading Volatility3 Windows symbols..."
+        cd ${VOL_SYMBOLS}
+        wget -q https://downloads.volatilityfoundation.org/volatility3/symbols/windows.zip -O /tmp/vol3_windows.zip 2>/dev/null
+        if [ -f /tmp/vol3_windows.zip ]; then
+            mkdir -p windows
+            cd windows && unzip -o -q /tmp/vol3_windows.zip 2>/dev/null
+            # Fix nested directory structure (windows/windows/ -> windows/)
+            if [ -d "windows" ]; then
+                cp -r windows/* . 2>/dev/null
+                rm -rf windows
+            fi
+            rm -f /tmp/vol3_windows.zip
+            log "Volatility3 Windows symbols installed: OK"
+        else
+            log "WARNING: Failed to download Volatility3 symbols"
+        fi
+        cd ${CAPE_ROOT}
+    else
+        log "Volatility3 Windows symbols already present: OK"
+    fi
+fi
+
+# Patch Volatility3 BitField compatibility with MongoDB
+if ! grep -q "Vol3Encoder" "${CAPE_ROOT}/modules/reporting/report_doc.py" 2>/dev/null; then
+    log "Applying Volatility3 BitField patch..."
+    python3 << 'PATCH_EOF'
+filepath = "/opt/CAPEv2/modules/reporting/report_doc.py"
+with open(filepath, "r") as f:
+    content = f.read()
+old = '                    del report["memory"]\n\n    # Deeper copy for behavior processes'
+new = """                    del report["memory"]
+
+    # Sanitize Volatility3 objects (BitField, etc.) that MongoDB cannot serialize
+    if "memory" in report:
+        import json
+        class Vol3Encoder(json.JSONEncoder):
+            def default(self, obj):
+                try:
+                    return int(obj)
+                except (TypeError, ValueError):
+                    try:
+                        return str(obj)
+                    except Exception:
+                        return repr(obj)
+        try:
+            report["memory"] = json.loads(json.dumps(report["memory"], cls=Vol3Encoder))
+        except Exception as e:
+            log.warning("Failed to sanitize memory section: %s", e)
+
+    # Deeper copy for behavior processes"""
+if old in content:
+    content = content.replace(old, new)
+    with open(filepath, "w") as f:
+        f.write(content)
+    print("BitField patch applied")
+else:
+    print("BitField patch target not found or already applied")
+PATCH_EOF
+    log "Volatility3 BitField patch: OK"
+else
+    log "Volatility3 BitField patch already applied: OK"
+fi
+
+# Start Daphne WebSocket server for Guacamole
+log "Starting Daphne WebSocket server for Guacamole..."
+cd "${CAPE_ROOT}/web"
+python3 -m daphne -b 0.0.0.0 -p 8008 web.asgi:application &
+log "Daphne started on port 8008 (PID: $!)"
+cd "${CAPE_ROOT}"
+
+# Fix permissions for analysis deletion from web UI using POSIX ACLs
+log "Setting up POSIX ACLs for storage permissions..."
+setfacl -R -m u:cape:rwX "${WORK}/storage" 2>/dev/null || true
+setfacl -R -d -m u:cape:rwX "${WORK}/storage" 2>/dev/null || true
+
+# Background ACL fix for analysis deletion from web UI
+log "Starting background ACL fix for storage permissions..."
+(while true; do
+    setfacl -R -m u:cape:rwX,m::rwX "${WORK}/storage/analyses/" 2>/dev/null
+    sleep 30
+done) &
 
 # Start the processor in the background (required to handle analysis results)
 log "Starting CAPE processor..."

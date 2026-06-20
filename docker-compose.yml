@@ -90,6 +90,15 @@ services:
       - cape-internal
 
   # ----------------------------------------------------------
+  # Guacd -- Apache Guacamole proxy daemon for interactive desktop
+  # ----------------------------------------------------------
+  cape-guacd:
+    image: guacamole/guacd:latest
+    container_name: cape-guacd
+    restart: unless-stopped
+    network_mode: host
+
+  # ----------------------------------------------------------
   # CAPE Sandbox -- Core malware analysis engine
   # Accesses KVM through the host libvirt socket
   # ----------------------------------------------------------
@@ -119,6 +128,9 @@ services:
       VM1_PLATFORM: ${VM1_PLATFORM:-windows}
       VM1_ARCH: ${VM1_ARCH:-x64}
       VM1_TAGS: ${VM1_TAGS:-win10}
+      CAPE_ADMIN_USER: ${CAPE_ADMIN_USER:-admin}
+      CAPE_ADMIN_PASSWORD: ${CAPE_ADMIN_PASSWORD:-CapeAdmin2026!}
+      CAPE_ADMIN_EMAIL: ${CAPE_ADMIN_EMAIL:-admin@cape.local}
     volumes:
       # Libvirt socket to control KVM VMs from inside the container
       - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
@@ -172,6 +184,9 @@ services:
     volumes:
       - ${CAPE_WORK_DIR:-./data/cape}:/work
       - ./templates/analysis/overview/_screenshots.html:/opt/CAPEv2/web/templates/analysis/overview/_screenshots.html
+      - ${CAPE_WORK_DIR:-./data/cape}/siteauth.sqlite:/opt/CAPEv2/web/siteauth.sqlite
+      - /var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
+      - /var/run/libvirt/libvirt-sock-ro:/var/run/libvirt/libvirt-sock-ro
     network_mode: host
     depends_on:
       postgresql:
